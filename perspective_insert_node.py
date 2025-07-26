@@ -130,44 +130,27 @@ class ImageInserter:
         if debug:
             print(f"[DEBUG] 原始顶点: {points}")
         
-        # 计算质心
-        center = np.mean(points, axis=0)
+        # 按x坐标排序所有点
+        x_sorted_indices = np.argsort(points[:, 0])
+        x_sorted_points = points[x_sorted_indices]
         
-        # 根据相对位置分类点
-        top_points = []
-        bottom_points = []
+        # 分组：x较小的两个点，x较大的两个点
+        left_points = x_sorted_points[:2]   # x坐标较小的两个点
+        right_points = x_sorted_points[2:]  # x坐标较大的两个点
         
-        for point in points:
-            if point[1] < center[1]:  # y坐标小于质心的是上方点
-                top_points.append(point)
-            else:  # y坐标大于等于质心的是下方点
-                bottom_points.append(point)
+        if debug:
+            print(f"[DEBUG] x较小的两个点: {left_points}")
+            print(f"[DEBUG] x较大的两个点: {right_points}")
         
-        # 确保我们有正确数量的点
-        if len(top_points) < 2:
-            # 如果上方点少于2个，按y坐标排序，取最小的2个作为上方点
-            sorted_by_y = points[np.argsort(points[:, 1])]
-            top_points = sorted_by_y[:2]
-            bottom_points = sorted_by_y[2:]
-        elif len(bottom_points) < 2:
-            # 如果下方点少于2个，按y坐标排序，取最大的2个作为下方点
-            sorted_by_y = points[np.argsort(points[:, 1])]
-            top_points = sorted_by_y[:2]
-            bottom_points = sorted_by_y[2:]
+        # 在左侧点中按y坐标排序：y小的是左上，y大的是左下
+        left_y_sorted = left_points[np.argsort(left_points[:, 1])]
+        top_left = left_y_sorted[0]     # y较小 = 左上
+        bottom_left = left_y_sorted[1]  # y较大 = 左下
         
-        # 转换为numpy数组
-        top_points = np.array(top_points)
-        bottom_points = np.array(bottom_points)
-        
-        # 在上方点中，按x坐标排序：左上、右上
-        top_sorted = top_points[np.argsort(top_points[:, 0])]
-        top_left = top_sorted[0]    # 左上
-        top_right = top_sorted[-1]  # 右上
-        
-        # 在下方点中，按x坐标排序：左下、右下
-        bottom_sorted = bottom_points[np.argsort(bottom_points[:, 0])]
-        bottom_left = bottom_sorted[0]   # 左下
-        bottom_right = bottom_sorted[-1] # 右下
+        # 在右侧点中按y坐标排序：y小的是右上，y大的是右下  
+        right_y_sorted = right_points[np.argsort(right_points[:, 1])]
+        top_right = right_y_sorted[0]     # y较小 = 右上
+        bottom_right = right_y_sorted[1]  # y较大 = 右下
         
         # 按标准顺序排列：左上、右上、右下、左下
         quadrilateral = np.array([
