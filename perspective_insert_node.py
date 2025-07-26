@@ -62,7 +62,7 @@ class ImageInserter:
         }
 
     RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("composited_image", "feather_mask")
+    RETURN_NAMES = ("composited_image", "edge_feather_mask")
     FUNCTION = "execute"
     CATEGORY = "image/transform"
 
@@ -276,7 +276,7 @@ class ImageInserter:
         return mask
 
     def create_feather_mask(self, shape, quadrilateral, inner_expand, outer_expand):
-        """基于四边形创建羽化蒙版"""
+        """基于四边形创建羽化蒙版，只输出边缘羽化轮廓"""
         quad_mask = self.create_quadrilateral_mask(shape, quadrilateral)
         
         if inner_expand == 0 and outer_expand == 0:
@@ -303,6 +303,34 @@ class ImageInserter:
             )
         
         return feather_mask
+    
+    def create_edge_feather_mask(self, shape, quadrilateral, inner_expand, outer_expand):
+        """创建只包含边缘羽化轮廓的蒙版"""
+        quad_mask = self.create_quadrilateral_mask(shape, quadrilateral)
+        
+        if inner_expand == 0 and outer_expand == 0:
+            # 没有羽化，返回空蒙版
+            return np.zeros_like(quad_mask, dtype=np.float32)
+        
+        dist_inside = cv2.distanceTransform(quad_mask, cv2.DIST_L2, 3)
+        dist_outside = cv2.distanceTransform(255 - quad_mask, cv2.DIST_L2, 3)
+        
+        edge_feather_mask = np.zeros_like(quad_mask, dtype=np.float32)
+        
+        # 内部羽化边缘
+        if inner_expand > 0:
+            inner_edge_region = (dist_inside <= inner_expand) & (quad_mask > 0)
+            edge_feather_mask[inner_edge_region] = dist_inside[inner_edge_region] / inner_expand
+        
+        # 外部羽化边缘
+        if outer_expand > 0:
+            outer_edge_region = (dist_outside <= outer_expand) & (quad_mask == 0)
+            edge_feather_mask[outer_edge_region] = np.maximum(
+                edge_feather_mask[outer_edge_region],
+                1.0 - (dist_outside[outer_edge_region] / outer_expand)
+            )
+        
+        return edge_feather_mask
 
     def perspective_transform_no_black_border(self, target_image, quadrilateral, output_shape, debug=False):
         """透视变换 - 避免黑边"""
@@ -410,20 +438,29 @@ class ImageInserter:
             if debug_mode:
                 print("[DEBUG] 基于检测到的四边形创建羽化蒙版（而非原始mask）")
             
-            feather_mask = self.create_feather_mask(
+            # 用于图像融合的完整羽化蒙版
+            feather_mask_for_blending = self.create_feather_mask(
+                bg_cv2.shape, quadrilateral, feather_inner_expand, feather_outer_expand
+            )
+            
+            # 用于输出的边缘羽化轮廓蒙版
+            edge_feather_mask = self.create_edge_feather_mask(
                 bg_cv2.shape, quadrilateral, feather_inner_expand, feather_outer_expand
             )
             
             if debug_mode:
-                print(f"[DEBUG] 羽化蒙版值范围: {feather_mask.min()} - {feather_mask.max()}")
-                quad_area = np.sum(feather_mask > 0)
-                print(f"[DEBUG] 四边形羽化区域像素数: {quad_area}")
+                print(f"[DEBUG] 融合羽化蒙版值范围: {feather_mask_for_blending.min()} - {feather_mask_for_blending.max()}")
+                print(f"[DEBUG] 边缘羽化蒙版值范围: {edge_feather_mask.min()} - {edge_feather_mask.max()}")
+                blend_area = np.sum(feather_mask_for_blending > 0)
+                edge_area = np.sum(edge_feather_mask > 0)
+                print(f"[DEBUG] 融合区域像素数: {blend_area}")
+                print(f"[DEBUG] 边缘羽化区域像素数: {edge_area}")
             
             # 5. 图像融合
             if len(bg_cv2.shape) == 3:
-                feather_mask_3d = np.stack([feather_mask] * 3, axis=2)
+                feather_mask_3d = np.stack([feather_mask_for_blending] * 3, axis=2)
             else:
-                feather_mask_3d = feather_mask
+                feather_mask_3d = feather_mask_for_blending
             
             # 确保warped_target有正确的通道数
             if len(bg_cv2.shape) == 3 and len(warped_target.shape) == 2:
@@ -447,12 +484,13 @@ class ImageInserter:
             
             # 6. 转换回tensor格式
             composited_tensor = self.cv2_to_tensor(composited)
-            feather_mask_tensor = torch.from_numpy(feather_mask).unsqueeze(0)
+            # 输出边缘羽化轮廓蒙版（只包含边缘，中心为空）
+            edge_feather_mask_tensor = torch.from_numpy(edge_feather_mask).unsqueeze(0)
             
             if debug_mode:
                 print("[DEBUG] 图片插入器执行成功")
             
-            return (composited_tensor, feather_mask_tensor)
+            return (composited_tensor, edge_feather_mask_tensor)
             
         except Exception as e:
             print(f"❌ 图片插入器执行错误: {str(e)}")

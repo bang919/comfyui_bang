@@ -89,12 +89,12 @@
     },
     "class_type": "MaskToImage",
     "_meta": {
-      "title": "查看羽化蒙版"
+      "title": "查看边缘羽化轮廓"
     }
   },
   "8": {
     "inputs": {
-      "filename_prefix": "billboard_mask",
+      "filename_prefix": "edge_feather_mask",
       "images": [
         "7",
         0
@@ -102,7 +102,7 @@
     },
     "class_type": "SaveImage",
     "_meta": {
-      "title": "保存羽化蒙版"
+      "title": "保存边缘羽化轮廓"
     }
   },
   "9": {
@@ -126,7 +126,7 @@
     },
     "class_type": "PreviewImage",
     "_meta": {
-      "title": "预览蒙版效果"
+      "title": "预览边缘羽化轮廓"
     }
   }
 } 
