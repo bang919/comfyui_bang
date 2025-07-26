@@ -1,125 +1,150 @@
 # ComfyUI 透视图插入节点
 
-这是一个ComfyUI自定义节点，用于将目标图片通过透视变换融合到背景图中，支持从mask自动提取四边形区域和羽化边缘处理。
+专业的ComfyUI自定义节点，用于将目标图片通过透视变换融合到背景图中，**专门优化小区域蒙版处理**（如广告牌植入）。
 
-## 功能特性
+## 🎯 核心功能
 
 - ✅ 从背景mask自动提取四边形区域
 - ✅ 目标图像透视变换适配mask区域  
+- ✅ 专门优化小区域处理（广告牌、标识等）
 - ✅ 支持图像旋转（-180°到180°）
 - ✅ 羽化边缘处理（内扩/外扩调节）
-- ✅ 输出合成图像和羽化蒙版
+- ✅ 输出合成图像和标准四边形羽化蒙版
 - ✅ 支持与Flux等工具配合进行inpainting
 
-## 安装方法
+## 📦 安装方法
 
-1. **下载插件文件**
-   ```bash
-   cd ComfyUI/custom_nodes
-   git clone [你的仓库地址] comfyui-perspective-insert
-   # 或者直接将所有文件复制到 ComfyUI/custom_nodes/comfyui-perspective-insert/ 目录
-   ```
+```bash
+cd ComfyUI/custom_nodes
+git clone https://github.com/bang919/comfyui_bang.git
+cd comfyui_bang
+pip install -r requirements.txt
+```
 
-2. **安装依赖**
-   ```bash
-   cd comfyui-perspective-insert
-   pip install -r requirements.txt
-   ```
+重启ComfyUI后，节点会出现在 `image/transform` 分类下。
 
-3. **重启ComfyUI**
-   重启ComfyUI后，节点会出现在 `image/transform` 分类下
+## 🚀 推荐使用
 
-## 测试使用
+### **节点选择**
 
-### 准备测试素材
+插件提供两个版本：
 
-你需要准备以下三个文件：
+1. **"透视区域插入（问题修复版）"** ⭐ **推荐使用**
+   - 最新修复版本，解决所有已知问题
+   - 专门优化小区域透视变换
+   - 集成所有高级功能
 
-1. **background.jpg** - 背景图像
-   - 任意尺寸的图片，作为插入目标的背景
+2. **"透视区域插入（调试版）"**
+   - 详细调试信息输出
+   - 用于问题排查和参数调试
 
-2. **mask.png** - 蒙版图像  
-   - 黑白图像，白色区域表示要插入目标图的区域
-   - 白色区域应该大致是四边形形状
-   - 建议使用PNG格式以保持清晰的边缘
+### **测试工作流**
 
-3. **target.jpg** - 目标图像
-   - 要被插入到背景中的图片
-   - 会通过透视变换适配mask区域
+使用 `example_workflow.json` - 专门针对小区域广告牌插入的完整工作流。
 
-### 使用测试工作流
-
-1. **加载工作流**
-   - 在ComfyUI中点击 "Load" 按钮
-   - 选择 `example.json` 文件
-
-2. **上传测试图片**
-   - 在"加载背景图像"节点中上传你的背景图
-   - 在"加载蒙版图像"节点中上传你的mask图
-   - 在"加载目标图像"节点中上传你的目标图
-
-3. **调整参数**（可选）
-   - `rotation_angle`: 目标图旋转角度（默认0°）
-   - `feather_inner_expand`: 羽化内扩像素数（默认2.0）
-   - `feather_outer_expand`: 羽化外扩像素数（默认8.0）
-
-4. **执行工作流**
-   - 点击 "Queue Prompt" 执行
-   - 查看预览结果和保存的文件
-
-## 节点参数说明
+## 🎛️ 节点参数说明
 
 ### 输入参数
 - **background_image** (IMAGE) - 背景图像
-- **background_mask** (MASK) - 插入区域的蒙版
+- **background_mask** (MASK) - 插入区域的蒙版（白色=插入区域）
 - **target_image** (IMAGE) - 要插入的目标图像  
 - **rotation_angle** (FLOAT) - 目标图旋转角度 (-180~180)
 - **feather_inner_expand** (FLOAT) - 羽化边缘内扩像素数 (0~100)
 - **feather_outer_expand** (FLOAT) - 羽化边缘外扩像素数 (0~100)
+- **mask_expand** (FLOAT) - 蒙版膨胀/腐蚀调节 (-10~10)
+- **enhance_small_mask** (BOOL) - 启用小区域增强
+- **debug_mode** (BOOL) - 显示详细调试信息
 
 ### 输出参数
 - **composited_image** (IMAGE) - 融合后的最终图像
-- **feather_mask** (MASK) - 羽化边缘蒙版（可用于后续inpainting）
+- **feather_mask** (MASK) - 标准四边形羽化蒙版（可用于后续inpainting）
 
-## 使用示例场景
+## 💡 使用场景
 
-1. **商品广告合成**
-   - 将商品图片贴入广告背景画面中
+### 🎪 **广告植入**
+- 体育场广告牌替换
+- 户外广告植入
+- 商品包装图案替换
 
-2. **标识植入**
-   - 将标志图片插入墙面或其他场景
+### 🏢 **标识植入**
+- 建筑物标识插入
+- 店面招牌替换
+- 背景标识植入
 
-3. **场景合成**
-   - 批量合成带有插画的真实场景图
+### 🎨 **创意合成**
+- 透视图片合成
+- 场景元素插入
+- AI修复配合（使用输出的羽化蒙版）
 
-4. **AI修复配合**
-   - 与Flux等工具配合，使用输出的feather_mask进行缺失区域填补
+## 🔧 推荐参数配置
 
-## 常见问题
+### **小区域广告牌场景**
+```
+rotation_angle: 0.0
+feather_inner_expand: 0.0  
+feather_outer_expand: 2.0
+mask_expand: 1.0
+enhance_small_mask: true
+debug_mode: true (首次使用)
+```
 
-**Q: mask中没有检测到四边形怎么办？**
-A: 节点会自动使用边界矩形作为fallback，或者你可以调整mask使白色区域更接近四边形。
+### **大区域图片插入**
+```
+rotation_angle: 0.0
+feather_inner_expand: 2.0  
+feather_outer_expand: 5.0
+mask_expand: 0.0
+enhance_small_mask: false
+debug_mode: false
+```
 
-**Q: 透视变换效果不理想？**  
-A: 可以尝试调整rotation_angle参数，或者优化mask的四边形形状。
+## 🎯 蒙版制作要求
 
-**Q: 边缘过渡不自然？**
-A: 调整feather_inner_expand和feather_outer_expand参数来优化羽化效果。
+1. **格式**: 黑白PNG图像
+2. **颜色**: 白色区域 = 插入区域，黑色区域 = 背景
+3. **形状**: 白色区域应大致为四边形
+4. **尺寸**: 与背景图像同尺寸（或节点会自动调整）
 
-## 技术依赖
+## 🔍 问题排查
 
-- Python >= 3.8
-- OpenCV >= 4.8.0
-- NumPy >= 1.21.0  
-- PyTorch >= 1.13.0
-- Pillow >= 9.0.0
+### **图像为黑色**
+- 使用"问题修复版"节点
+- 启用`debug_mode`查看详细信息
+- 检查蒙版是否正确（白色区域代表插入位置）
 
-## 版本信息
+### **透视效果不理想**  
+- 调整`rotation_angle`参数
+- 优化蒙版的四边形形状
+- 使用`mask_expand`微调蒙版大小
 
-- 版本: 1.0.0
-- 兼容: ComfyUI
-- 分类: image/transform
+### **边缘过渡不自然**
+- 调整`feather_inner_expand`和`feather_outer_expand`参数
+- 对于小区域，建议使用较小的羽化值
 
-## 许可证
+## 📊 技术规格
 
-[根据你的需要添加许可证信息] 
+- **Python**: >= 3.8
+- **OpenCV**: >= 4.8.0
+- **NumPy**: >= 1.21.0  
+- **PyTorch**: >= 1.13.0
+- **Pillow**: >= 9.0.0
+
+## 📝 版本历史
+
+- **v2.0.0**: 专业版 - 清理冗余代码，专注小区域优化
+- **v1.2.0**: 修复黑色输出问题
+- **v1.1.0**: 新增小区域优化版本
+- **v1.0.1**: 添加调试版本
+- **v1.0.0**: 初始版本
+
+---
+
+## 🌟 快速开始
+
+1. **安装插件** → `git clone` + `pip install`
+2. **重启ComfyUI** → 查看新节点
+3. **导入工作流** → 使用 `example_workflow.json`
+4. **上传素材** → 背景图、蒙版图、目标图
+5. **使用修复版节点** → 获得完美效果
+
+**专为小区域透视变换优化，让你的广告植入更加自然！** 🎯✨ 
