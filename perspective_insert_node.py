@@ -126,31 +126,96 @@ class ImageInserter:
         return mask
 
     def sort_quadrilateral_points(self, points, debug=False):
-        """正确排序四边形顶点：左上、右上、右下、左下"""
+        """根据四边形实际形状智能排序顶点：左上、右上、右下、左下"""
         if debug:
             print(f"[DEBUG] 原始顶点: {points}")
         
-        # 按x坐标排序所有点
-        x_sorted_indices = np.argsort(points[:, 0])
-        x_sorted_points = points[x_sorted_indices]
+        # 计算质心
+        center = np.mean(points, axis=0)
         
-        # 分组：x较小的两个点，x较大的两个点
-        left_points = x_sorted_points[:2]   # x坐标较小的两个点
-        right_points = x_sorted_points[2:]  # x坐标较大的两个点
+        # 分析四边形的形状特征
+        # 找到最上面的点和最下面的点
+        y_coords = points[:, 1]
+        top_indices = np.where(y_coords < center[1])[0]
+        bottom_indices = np.where(y_coords >= center[1])[0]
+        
+        # 确保有正确的上下分组
+        if len(top_indices) < 2:
+            y_sorted_indices = np.argsort(points[:, 1])
+            top_indices = y_sorted_indices[:2]
+            bottom_indices = y_sorted_indices[2:]
+        elif len(bottom_indices) < 2:
+            y_sorted_indices = np.argsort(points[:, 1])
+            top_indices = y_sorted_indices[:2]
+            bottom_indices = y_sorted_indices[2:]
+            
+        # 上方的两个点和下方的两个点
+        top_points = points[top_indices]
+        bottom_points = points[bottom_indices]
+        
+        # 分析四边形的倾斜方向
+        # 通过比较上边和下边的中点位置来判断倾斜
+        top_center_x = np.mean(top_points[:, 0])
+        bottom_center_x = np.mean(bottom_points[:, 0])
         
         if debug:
-            print(f"[DEBUG] x较小的两个点: {left_points}")
-            print(f"[DEBUG] x较大的两个点: {right_points}")
+            print(f"[DEBUG] 质心: {center}")
+            print(f"[DEBUG] 上方点: {top_points}")
+            print(f"[DEBUG] 下方点: {bottom_points}")
+            print(f"[DEBUG] 上边中心x: {top_center_x:.2f}, 下边中心x: {bottom_center_x:.2f}")
         
-        # 在左侧点中按y坐标排序：y小的是左上，y大的是左下
-        left_y_sorted = left_points[np.argsort(left_points[:, 1])]
-        top_left = left_y_sorted[0]     # y较小 = 左上
-        bottom_left = left_y_sorted[1]  # y较大 = 左下
+        # 检测倾斜方向
+        tilt_threshold = 5.0  # 倾斜阈值，小于此值认为是垂直四边形
+        is_right_tilted = (top_center_x - bottom_center_x) > tilt_threshold
+        is_left_tilted = (bottom_center_x - top_center_x) > tilt_threshold
         
-        # 在右侧点中按y坐标排序：y小的是右上，y大的是右下  
-        right_y_sorted = right_points[np.argsort(right_points[:, 1])]
-        top_right = right_y_sorted[0]     # y较小 = 右上
-        bottom_right = right_y_sorted[1]  # y较大 = 右下
+        if is_right_tilted:
+            # 向右倾斜：上边偏右，下边偏左
+            if debug:
+                print("[DEBUG] 检测到向右倾斜的四边形")
+            
+            # 对于向右倾斜，需要交叉匹配
+            top_x_sorted = np.argsort(top_points[:, 0])
+            bottom_x_sorted = np.argsort(bottom_points[:, 0])
+            
+            # 交叉匹配：上边较右的点对应右上，下边较左的点对应左下
+            top_left = top_points[top_x_sorted[0]]      # 上方x较小的 -> 左上
+            top_right = top_points[top_x_sorted[1]]     # 上方x较大的 -> 右上
+            bottom_left = bottom_points[bottom_x_sorted[0]]   # 下方x较小的 -> 左下  
+            bottom_right = bottom_points[bottom_x_sorted[1]]  # 下方x较大的 -> 右下
+            
+        elif is_left_tilted:
+            # 向左倾斜：上边偏左，下边偏右
+            if debug:
+                print("[DEBUG] 检测到向左倾斜的四边形")
+                
+            top_x_sorted = np.argsort(top_points[:, 0])
+            bottom_x_sorted = np.argsort(bottom_points[:, 0])
+            
+            top_left = top_points[top_x_sorted[0]]      # 上方x较小的 -> 左上
+            top_right = top_points[top_x_sorted[1]]     # 上方x较大的 -> 右上
+            bottom_left = bottom_points[bottom_x_sorted[0]]   # 下方x较小的 -> 左下
+            bottom_right = bottom_points[bottom_x_sorted[1]]  # 下方x较大的 -> 右下
+            
+        else:
+            # 垂直或接近垂直的四边形
+            if debug:
+                print("[DEBUG] 检测到垂直四边形")
+                
+            # 标准处理：按x坐标分左右
+            x_sorted_indices = np.argsort(points[:, 0])
+            x_sorted_points = points[x_sorted_indices]
+            
+            left_points = x_sorted_points[:2]
+            right_points = x_sorted_points[2:]
+            
+            left_y_sorted = left_points[np.argsort(left_points[:, 1])]
+            top_left = left_y_sorted[0]
+            bottom_left = left_y_sorted[1]
+            
+            right_y_sorted = right_points[np.argsort(right_points[:, 1])]
+            top_right = right_y_sorted[0]
+            bottom_right = right_y_sorted[1]
         
         # 按标准顺序排列：左上、右上、右下、左下
         quadrilateral = np.array([
