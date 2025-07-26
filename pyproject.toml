@@ -1,0 +1,23 @@
+[project]
+name = "comfyui-perspective-insert"
+version = "1.0.0"
+description = "透视图插入节点 - 将目标图片通过透视变换融合到背景图中"
+authors = [{name = "ComfyUI Plugin Developer"}]
+dependencies = [
+    "opencv-python>=4.8.0",
+    "numpy>=1.21.0", 
+    "torch>=1.13.0",
+    "pillow>=9.0.0"
+]
+requires-python = ">=3.8"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "black>=22.0",
+    "flake8>=4.0"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build" 
