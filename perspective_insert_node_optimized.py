@@ -263,27 +263,37 @@ class PerspectiveRegionInsertOptimized:
         
         return rotated
 
-    def create_feather_mask(self, mask, inner_expand, outer_expand):
-        """创建羽化蒙版，优化小区域"""
+    def create_quadrilateral_mask(self, shape, quadrilateral):
+        """根据四边形顶点创建纯四边形蒙版"""
+        mask = np.zeros(shape[:2], dtype=np.uint8)
+        # 填充四边形区域
+        cv2.fillPoly(mask, [quadrilateral.astype(np.int32)], 255)
+        return mask
+
+    def create_feather_mask(self, shape, quadrilateral, inner_expand, outer_expand):
+        """基于四边形创建羽化蒙版，而不是原始mask"""
+        # 先创建纯四边形蒙版
+        quad_mask = self.create_quadrilateral_mask(shape, quadrilateral)
+        
         if inner_expand == 0 and outer_expand == 0:
-            return mask.astype(np.float32) / 255.0
+            return quad_mask.astype(np.float32) / 255.0
         
-        # 对于小区域，使用更精细的距离变换
-        dist_inside = cv2.distanceTransform(mask, cv2.DIST_L2, 3)  # 使用更精确的距离变换
-        dist_outside = cv2.distanceTransform(255 - mask, cv2.DIST_L2, 3)
+        # 基于四边形蒙版创建距离变换
+        dist_inside = cv2.distanceTransform(quad_mask, cv2.DIST_L2, 3)
+        dist_outside = cv2.distanceTransform(255 - quad_mask, cv2.DIST_L2, 3)
         
-        feather_mask = np.zeros_like(mask, dtype=np.float32)
+        feather_mask = np.zeros_like(quad_mask, dtype=np.float32)
         
         if inner_expand > 0:
             inner_region = dist_inside > inner_expand
-            transition_region = (dist_inside <= inner_expand) & (mask > 0)
+            transition_region = (dist_inside <= inner_expand) & (quad_mask > 0)
             feather_mask[inner_region] = 1.0
             feather_mask[transition_region] = dist_inside[transition_region] / inner_expand
         else:
-            feather_mask[mask > 0] = 1.0
+            feather_mask[quad_mask > 0] = 1.0
         
         if outer_expand > 0:
-            outer_region = (dist_outside <= outer_expand) & (mask == 0)
+            outer_region = (dist_outside <= outer_expand) & (quad_mask == 0)
             feather_mask[outer_region] = np.maximum(
                 feather_mask[outer_region],
                 1.0 - (dist_outside[outer_region] / outer_expand)
@@ -376,13 +386,18 @@ class PerspectiveRegionInsertOptimized:
                     print(f"[DEBUG] 调整变换后图像尺寸到背景图尺寸")
                 warped_target = cv2.resize(warped_target, (bg_width, bg_height), interpolation=cv2.INTER_CUBIC)
             
-            # 4. 创建羽化蒙版
+            # 4. 基于四边形创建羽化蒙版
+            if debug_mode:
+                print("[DEBUG] 基于检测到的四边形创建羽化蒙版（而非原始mask）")
+            
             feather_mask = self.create_feather_mask(
-                mask_cv2, feather_inner_expand, feather_outer_expand
+                bg_cv2.shape, quadrilateral, feather_inner_expand, feather_outer_expand
             )
             
             if debug_mode:
                 print(f"[DEBUG] 羽化蒙版值范围: {feather_mask.min()} - {feather_mask.max()}")
+                quad_area = np.sum(feather_mask > 0)
+                print(f"[DEBUG] 四边形羽化区域像素数: {quad_area}")
             
             # 5. 图像融合
             if len(bg_cv2.shape) == 3:
