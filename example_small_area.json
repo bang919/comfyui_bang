@@ -1,0 +1,132 @@
+{
+  "1": {
+    "inputs": {
+      "image": "stadium_background.jpg",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载体育场背景图"
+    }
+  },
+  "2": {
+    "inputs": {
+      "image": "billboard_mask.png",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载广告牌位置蒙版"
+    }
+  },
+  "3": {
+    "inputs": {
+      "image": "billboard_ad.jpg",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载广告牌内容"
+    }
+  },
+  "4": {
+    "inputs": {
+      "image": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "ImageToMask",
+    "_meta": {
+      "title": "转换蒙版格式"
+    }
+  },
+  "5": {
+    "inputs": {
+      "background_image": [
+        "1",
+        0
+      ],
+      "background_mask": [
+        "4",
+        0
+      ],
+      "target_image": [
+        "3",
+        0
+      ],
+      "rotation_angle": 0.0,
+      "feather_inner_expand": 0.0,
+      "feather_outer_expand": 2.0,
+      "mask_expand": 1.0,
+      "enhance_small_mask": true,
+      "debug_mode": true
+    },
+    "class_type": "PerspectiveRegionInsertOptimized",
+    "_meta": {
+      "title": "小区域优化透视插入"
+    }
+  },
+  "6": {
+    "inputs": {
+      "filename_prefix": "billboard_result",
+      "images": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存广告牌合成结果"
+    }
+  },
+  "7": {
+    "inputs": {
+      "mask": [
+        "5",
+        1
+      ]
+    },
+    "class_type": "MaskToImage",
+    "_meta": {
+      "title": "查看羽化蒙版"
+    }
+  },
+  "8": {
+    "inputs": {
+      "filename_prefix": "billboard_mask",
+      "images": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存羽化蒙版"
+    }
+  },
+  "9": {
+    "inputs": {
+      "images": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "预览广告牌效果"
+    }
+  },
+  "10": {
+    "inputs": {
+      "images": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "预览蒙版效果"
+    }
+  }
+} 
