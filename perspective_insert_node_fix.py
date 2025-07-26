@@ -4,15 +4,14 @@ import torch
 from PIL import Image
 
 
-class PerspectiveRegionInsertOptimized:
+class PerspectiveRegionInsertFix:
     """
-    透视图插入节点（优化版） - 专门处理小蒙版区域
+    透视图插入节点（修复版） - 修复黑色输出问题
     
     功能:
+    - 修复透视变换后图像为黑色的问题
     - 优化小区域蒙版的处理
-    - 增强透视变换效果
-    - 更好的羽化边缘处理
-    - 输出合成图像和羽化蒙版
+    - 增强调试信息
     """
     
     def __init__(self):
@@ -114,13 +113,11 @@ class PerspectiveRegionInsertOptimized:
         """增强小蒙版区域"""
         if expand_pixels != 0:
             if expand_pixels > 0:
-                # 膨胀
                 kernel = np.ones((int(expand_pixels*2+1), int(expand_pixels*2+1)), np.uint8)
                 mask = cv2.dilate(mask, kernel, iterations=1)
                 if debug:
                     print(f"[DEBUG] 膨胀蒙版 {expand_pixels} 像素")
             else:
-                # 腐蚀
                 kernel = np.ones((int(abs(expand_pixels)*2+1), int(abs(expand_pixels)*2+1)), np.uint8)
                 mask = cv2.erode(mask, kernel, iterations=1)
                 if debug:
@@ -135,7 +132,6 @@ class PerspectiveRegionInsertOptimized:
             print(f"[DEBUG] Mask value range: {mask.min()} - {mask.max()}")
             print(f"[DEBUG] White pixels count: {np.sum(mask > 128)}")
         
-        # 查找轮廓
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         if not contours:
@@ -146,7 +142,6 @@ class PerspectiveRegionInsertOptimized:
         if debug:
             print(f"[DEBUG] 找到 {len(contours)} 个轮廓")
         
-        # 选择面积最大的轮廓
         largest_contour = max(contours, key=cv2.contourArea)
         contour_area = cv2.contourArea(largest_contour)
         
@@ -154,24 +149,20 @@ class PerspectiveRegionInsertOptimized:
             print(f"[DEBUG] 最大轮廓面积: {contour_area}")
         
         # 对于小区域，使用更精确的边界矩形
-        if contour_area < 5000:  # 小区域阈值
+        if contour_area < 5000:
             if debug:
                 print("[DEBUG] 检测到小蒙版区域，使用优化处理")
             
-            # 获取旋转矩形（更适合条形区域）
             rect = cv2.minAreaRect(largest_contour)
             box = cv2.boxPoints(rect)
             box = np.array(box, dtype=np.float32)
             
-            # 确保顺序：左上、右上、右下、左下
             center = np.mean(box, axis=0)
             angles = np.arctan2(box[:, 1] - center[1], box[:, 0] - center[0])
             sorted_indices = np.argsort(angles)
             
-            # 重新排序
             sorted_points = box[sorted_indices]
             
-            # 找到最上面和最下面的点
             top_indices = np.where(sorted_points[:, 1] < center[1])[0]
             bottom_indices = np.where(sorted_points[:, 1] >= center[1])[0]
             
@@ -179,7 +170,6 @@ class PerspectiveRegionInsertOptimized:
                 top_points = sorted_points[top_indices]
                 bottom_points = sorted_points[bottom_indices]
                 
-                # 按x坐标排序
                 top_points = top_points[np.argsort(top_points[:, 0])]
                 bottom_points = bottom_points[np.argsort(bottom_points[:, 0])]
                 
@@ -208,7 +198,6 @@ class PerspectiveRegionInsertOptimized:
                 approx = approx.reshape(-1, 2).astype(np.float32)
                 approx = approx[:4]
             
-            # 排序
             center = np.mean(approx, axis=0)
             angles = np.arctan2(approx[:, 1] - center[1], approx[:, 0] - center[0])
             sorted_indices = np.argsort(angles)
@@ -233,7 +222,6 @@ class PerspectiveRegionInsertOptimized:
         
         if debug:
             print(f"[DEBUG] 四边形顶点: {quadrilateral}")
-            # 计算四边形的宽高比
             width = np.linalg.norm(quadrilateral[1] - quadrilateral[0])
             height = np.linalg.norm(quadrilateral[3] - quadrilateral[0])
             aspect_ratio = width / height if height > 0 else 0
@@ -266,19 +254,16 @@ class PerspectiveRegionInsertOptimized:
     def create_quadrilateral_mask(self, shape, quadrilateral):
         """根据四边形顶点创建纯四边形蒙版"""
         mask = np.zeros(shape[:2], dtype=np.uint8)
-        # 填充四边形区域
         cv2.fillPoly(mask, [quadrilateral.astype(np.int32)], 255)
         return mask
 
     def create_feather_mask(self, shape, quadrilateral, inner_expand, outer_expand):
-        """基于四边形创建羽化蒙版，而不是原始mask"""
-        # 先创建纯四边形蒙版
+        """基于四边形创建羽化蒙版"""
         quad_mask = self.create_quadrilateral_mask(shape, quadrilateral)
         
         if inner_expand == 0 and outer_expand == 0:
             return quad_mask.astype(np.float32) / 255.0
         
-        # 基于四边形蒙版创建距离变换
         dist_inside = cv2.distanceTransform(quad_mask, cv2.DIST_L2, 3)
         dist_outside = cv2.distanceTransform(255 - quad_mask, cv2.DIST_L2, 3)
         
@@ -301,12 +286,14 @@ class PerspectiveRegionInsertOptimized:
         
         return feather_mask
 
-    def perspective_transform(self, target_image, quadrilateral, debug=False):
-        """透视变换，优化小区域"""
+    def perspective_transform_fixed(self, target_image, quadrilateral, output_shape, debug=False):
+        """修复版透视变换 - 直接变换到目标尺寸"""
         height, width = target_image.shape[:2]
+        output_height, output_width = output_shape[:2]
         
         if debug:
             print(f"[DEBUG] 目标图像尺寸: {width}x{height}")
+            print(f"[DEBUG] 输出图像尺寸: {output_width}x{output_height}")
         
         src_points = np.array([
             [0, 0],
@@ -315,33 +302,43 @@ class PerspectiveRegionInsertOptimized:
             [0, height - 1]
         ], dtype=np.float32)
         
-        perspective_matrix = cv2.getPerspectiveTransform(src_points, quadrilateral)
+        # 确保四边形顶点在输出图像范围内
+        quadrilateral_clipped = np.copy(quadrilateral)
+        quadrilateral_clipped[:, 0] = np.clip(quadrilateral_clipped[:, 0], 0, output_width - 1)
+        quadrilateral_clipped[:, 1] = np.clip(quadrilateral_clipped[:, 1], 0, output_height - 1)
+        
+        if debug:
+            print(f"[DEBUG] 原始四边形顶点: {quadrilateral}")
+            print(f"[DEBUG] 裁剪后四边形顶点: {quadrilateral_clipped}")
+        
+        perspective_matrix = cv2.getPerspectiveTransform(src_points, quadrilateral_clipped)
         
         if debug:
             print(f"[DEBUG] 透视变换矩阵:\n{perspective_matrix}")
         
-        # 计算输出图像大小
-        canvas_height, canvas_width = target_image.shape[:2]
-        if len(quadrilateral) >= 4:
-            max_x = int(np.max(quadrilateral[:, 0])) + 50
-            max_y = int(np.max(quadrilateral[:, 1])) + 50
-            canvas_width = max(canvas_width, max_x)
-            canvas_height = max(canvas_height, max_y)
-        
-        # 使用高质量插值
+        # 直接变换到输出尺寸
         warped = cv2.warpPerspective(
             target_image, 
             perspective_matrix, 
-            (canvas_width, canvas_height),
-            flags=cv2.INTER_CUBIC  # 使用三次插值获得更好的质量
+            (output_width, output_height),
+            flags=cv2.INTER_CUBIC,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(0, 0, 0)
         )
         
         if debug:
-            print(f"[DEBUG] 变换后图像尺寸: {canvas_width}x{canvas_height}")
             print(f"[DEBUG] 变换后图像值范围: {warped.min()} - {warped.max()}")
             print(f"[DEBUG] 变换后非零像素数: {np.count_nonzero(warped)}")
+            
+            # 检查四边形区域是否有内容
+            quad_mask = self.create_quadrilateral_mask((output_height, output_width), quadrilateral_clipped)
+            quad_region_pixels = np.sum(warped[quad_mask > 0])
+            print(f"[DEBUG] 四边形区域像素总和: {quad_region_pixels}")
+            
             if warped.max() == 0:
                 print("[DEBUG] ⚠️ 警告：透视变换后图像全为黑色！")
+            elif quad_region_pixels == 0:
+                print("[DEBUG] ⚠️ 警告：四边形区域内没有内容！")
         
         return warped
 
@@ -349,7 +346,7 @@ class PerspectiveRegionInsertOptimized:
                 rotation_angle, feather_inner_expand, feather_outer_expand, 
                 mask_expand, enhance_small_mask, debug_mode):
         try:
-            print(f"[DEBUG] 开始执行优化版透视插入节点，调试模式: {debug_mode}")
+            print(f"[DEBUG] 开始执行修复版透视插入节点，调试模式: {debug_mode}")
             
             # 转换输入格式
             bg_cv2 = self.tensor_to_cv2(background_image)
@@ -360,6 +357,7 @@ class PerspectiveRegionInsertOptimized:
                 print(f"[DEBUG] 背景图尺寸: {bg_cv2.shape}")
                 print(f"[DEBUG] Mask尺寸: {mask_cv2.shape}")
                 print(f"[DEBUG] 目标图尺寸: {target_cv2.shape}")
+                print(f"[DEBUG] 目标图值范围: {target_cv2.min()} - {target_cv2.max()}")
             
             # 确保背景图和mask尺寸一致
             bg_height, bg_width = bg_cv2.shape[:2]
@@ -380,15 +378,13 @@ class PerspectiveRegionInsertOptimized:
                 if debug_mode:
                     print(f"[DEBUG] 旋转目标图像 {rotation_angle} 度")
                 target_cv2 = self.rotate_image(target_cv2, rotation_angle)
-            
-            # 3. 透视变换
-            warped_target = self.perspective_transform(target_cv2, quadrilateral, debug_mode)
-            
-            # 确保变换后的图像与背景图尺寸一致
-            if warped_target.shape[:2] != (bg_height, bg_width):
                 if debug_mode:
-                    print(f"[DEBUG] 调整变换后图像尺寸到背景图尺寸")
-                warped_target = cv2.resize(warped_target, (bg_width, bg_height), interpolation=cv2.INTER_CUBIC)
+                    print(f"[DEBUG] 旋转后目标图尺寸: {target_cv2.shape}")
+            
+            # 3. 修复版透视变换 - 直接变换到背景图尺寸
+            warped_target = self.perspective_transform_fixed(
+                target_cv2, quadrilateral, bg_cv2.shape, debug_mode
+            )
             
             # 4. 基于四边形创建羽化蒙版
             if debug_mode:
@@ -415,12 +411,18 @@ class PerspectiveRegionInsertOptimized:
             elif len(bg_cv2.shape) == 2 and len(warped_target.shape) == 3:
                 warped_target = cv2.cvtColor(warped_target, cv2.COLOR_BGR2GRAY)
             
+            if debug_mode:
+                print(f"[DEBUG] 融合前 - 背景图值范围: {bg_cv2.min()} - {bg_cv2.max()}")
+                print(f"[DEBUG] 融合前 - 变换图值范围: {warped_target.min()} - {warped_target.max()}")
+                print(f"[DEBUG] 融合前 - 羽化蒙版值范围: {feather_mask_3d.min()} - {feather_mask_3d.max()}")
+            
             # 执行融合
             composited = (bg_cv2.astype(np.float32) * (1 - feather_mask_3d) + 
                          warped_target.astype(np.float32) * feather_mask_3d)
             composited = np.clip(composited, 0, 255).astype(np.uint8)
             
             if debug_mode:
+                print(f"[DEBUG] 融合后图像值范围: {composited.min()} - {composited.max()}")
                 print("[DEBUG] 图像融合完成")
             
             # 6. 转换回tensor格式
@@ -428,24 +430,23 @@ class PerspectiveRegionInsertOptimized:
             feather_mask_tensor = torch.from_numpy(feather_mask).unsqueeze(0)
             
             if debug_mode:
-                print("[DEBUG] 优化版透视插入节点执行成功")
+                print("[DEBUG] 修复版透视插入节点执行成功")
             
             return (composited_tensor, feather_mask_tensor)
             
         except Exception as e:
-            print(f"❌ 优化版透视插入节点执行错误: {str(e)}")
+            print(f"❌ 修复版透视插入节点执行错误: {str(e)}")
             import traceback
             print(f"❌ 详细错误信息:\n{traceback.format_exc()}")
-            # 返回原始背景图和空mask作为fallback
             fallback_mask = torch.zeros((1, background_image.shape[1], background_image.shape[2]))
             return (background_image, fallback_mask)
 
 
 # 节点映射
 NODE_CLASS_MAPPINGS = {
-    "PerspectiveRegionInsertOptimized": PerspectiveRegionInsertOptimized
+    "PerspectiveRegionInsertFix": PerspectiveRegionInsertFix
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "PerspectiveRegionInsertOptimized": "透视区域插入（小区域优化版） (Perspective Region Insert - Small Area Optimized)"
+    "PerspectiveRegionInsertFix": "透视区域插入（问题修复版） (Perspective Region Insert Fix)"
 } 
