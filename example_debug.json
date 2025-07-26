@@ -1,0 +1,130 @@
+{
+  "1": {
+    "inputs": {
+      "image": "background.jpg",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载背景图像"
+    }
+  },
+  "2": {
+    "inputs": {
+      "image": "mask.png",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载蒙版图像"
+    }
+  },
+  "3": {
+    "inputs": {
+      "image": "target.jpg",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载目标图像"
+    }
+  },
+  "4": {
+    "inputs": {
+      "image": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "ImageToMask",
+    "_meta": {
+      "title": "图像转蒙版"
+    }
+  },
+  "5": {
+    "inputs": {
+      "background_image": [
+        "1",
+        0
+      ],
+      "background_mask": [
+        "4",
+        0
+      ],
+      "target_image": [
+        "3",
+        0
+      ],
+      "rotation_angle": 0.0,
+      "feather_inner_expand": 2.0,
+      "feather_outer_expand": 8.0,
+      "debug_mode": true
+    },
+    "class_type": "PerspectiveRegionInsertDebug",
+    "_meta": {
+      "title": "透视区域插入（调试版）"
+    }
+  },
+  "6": {
+    "inputs": {
+      "filename_prefix": "composited_result_debug",
+      "images": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存合成图像"
+    }
+  },
+  "7": {
+    "inputs": {
+      "mask": [
+        "5",
+        1
+      ]
+    },
+    "class_type": "MaskToImage",
+    "_meta": {
+      "title": "蒙版转图像"
+    }
+  },
+  "8": {
+    "inputs": {
+      "filename_prefix": "feather_mask_debug",
+      "images": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存羽化蒙版"
+    }
+  },
+  "9": {
+    "inputs": {
+      "images": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "预览合成结果"
+    }
+  },
+  "10": {
+    "inputs": {
+      "images": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "预览羽化蒙版"
+    }
+  }
+} 
