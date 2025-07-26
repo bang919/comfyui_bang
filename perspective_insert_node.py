@@ -52,12 +52,6 @@ class ImageInserter:
                     "step": 0.5,
                     "display": "number"
                 }),
-                "enhance_small_mask": ("BOOLEAN", {
-                    "default": True
-                }),
-                "debug_mode": ("BOOLEAN", {
-                    "default": True
-                }),
             },
         }
 
@@ -109,27 +103,20 @@ class ImageInserter:
             
         return mask
 
-    def enhance_small_mask(self, mask, expand_pixels=0, debug=False):
-        """增强小蒙版区域"""
+    def enhance_small_mask(self, mask, expand_pixels=0):
+        """应用蒙版扩展/收缩"""
         if expand_pixels != 0:
             if expand_pixels > 0:
                 kernel = np.ones((int(expand_pixels*2+1), int(expand_pixels*2+1)), np.uint8)
                 mask = cv2.dilate(mask, kernel, iterations=1)
-                if debug:
-                    print(f"[DEBUG] 膨胀蒙版 {expand_pixels} 像素")
             else:
                 kernel = np.ones((int(abs(expand_pixels)*2+1), int(abs(expand_pixels)*2+1)), np.uint8)
                 mask = cv2.erode(mask, kernel, iterations=1)
-                if debug:
-                    print(f"[DEBUG] 腐蚀蒙版 {abs(expand_pixels)} 像素")
         
         return mask
 
-    def sort_quadrilateral_points(self, points, debug=False):
+    def sort_quadrilateral_points(self, points):
         """根据四边形实际形状智能排序顶点：左上、右上、右下、左下"""
-        if debug:
-            print(f"[DEBUG] 原始顶点: {points}")
-        
         # 计算质心
         center = np.mean(points, axis=0)
         
@@ -158,12 +145,6 @@ class ImageInserter:
         top_center_x = np.mean(top_points[:, 0])
         bottom_center_x = np.mean(bottom_points[:, 0])
         
-        if debug:
-            print(f"[DEBUG] 质心: {center}")
-            print(f"[DEBUG] 上方点: {top_points}")
-            print(f"[DEBUG] 下方点: {bottom_points}")
-            print(f"[DEBUG] 上边中心x: {top_center_x:.2f}, 下边中心x: {bottom_center_x:.2f}")
-        
         # 检测倾斜方向
         tilt_threshold = 5.0  # 倾斜阈值，小于此值认为是垂直四边形
         is_right_tilted = (top_center_x - bottom_center_x) > tilt_threshold
@@ -171,9 +152,6 @@ class ImageInserter:
         
         if is_right_tilted:
             # 向右倾斜：上边偏右，下边偏左
-            if debug:
-                print("[DEBUG] 检测到向右倾斜的四边形")
-            
             # 对于向右倾斜，需要交叉匹配
             top_x_sorted = np.argsort(top_points[:, 0])
             bottom_x_sorted = np.argsort(bottom_points[:, 0])
@@ -186,9 +164,6 @@ class ImageInserter:
             
         elif is_left_tilted:
             # 向左倾斜：上边偏左，下边偏右
-            if debug:
-                print("[DEBUG] 检测到向左倾斜的四边形")
-                
             top_x_sorted = np.argsort(top_points[:, 0])
             bottom_x_sorted = np.argsort(bottom_points[:, 0])
             
@@ -199,9 +174,6 @@ class ImageInserter:
             
         else:
             # 垂直或接近垂直的四边形
-            if debug:
-                print("[DEBUG] 检测到垂直四边形")
-                
             # 标准处理：按x坐标分左右
             x_sorted_indices = np.argsort(points[:, 0])
             x_sorted_points = points[x_sorted_indices]
@@ -225,75 +197,93 @@ class ImageInserter:
             bottom_left   # 左下 [3]
         ], dtype=np.float32)
         
-        if debug:
-            print(f"[DEBUG] 排序后顶点:")
-            print(f"[DEBUG]   左上: {quadrilateral[0]}")
-            print(f"[DEBUG]   右上: {quadrilateral[1]}")
-            print(f"[DEBUG]   右下: {quadrilateral[2]}")
-            print(f"[DEBUG]   左下: {quadrilateral[3]}")
-            
-            # 计算宽高
-            width = np.linalg.norm(quadrilateral[1] - quadrilateral[0])
-            height = np.linalg.norm(quadrilateral[3] - quadrilateral[0])
-            aspect_ratio = width / height if height > 0 else 0
-            print(f"[DEBUG] 四边形宽高比: {aspect_ratio:.2f}")
-        
         return quadrilateral
 
-    def find_quadrilateral_from_mask(self, mask, debug=False):
-        """从mask中提取四边形区域，修复顶点排序"""
-        if debug:
-            print(f"[DEBUG] Mask shape: {mask.shape}, dtype: {mask.dtype}")
-            print(f"[DEBUG] Mask value range: {mask.min()} - {mask.max()}")
-            print(f"[DEBUG] White pixels count: {np.sum(mask > 128)}")
-        
+    def find_quadrilateral_from_mask(self, mask):
+        """从mask中提取四边形区域，使用最大面积四边形方法"""
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         if not contours:
-            if debug:
-                print("[DEBUG] 错误：未在mask中找到任何轮廓")
             raise ValueError("未在mask中找到任何轮廓")
         
-        if debug:
-            print(f"[DEBUG] 找到 {len(contours)} 个轮廓")
-        
         largest_contour = max(contours, key=cv2.contourArea)
-        contour_area = cv2.contourArea(largest_contour)
         
-        if debug:
-            print(f"[DEBUG] 最大轮廓面积: {contour_area}")
+        # 获取轮廓的所有点
+        contour_points = largest_contour.reshape(-1, 2)
         
-        # 对于小区域，使用旋转矩形获得更准确的四边形
-        if contour_area < 5000:
-            if debug:
-                print("[DEBUG] 检测到小蒙版区域，使用旋转矩形优化处理")
-            
-            rect = cv2.minAreaRect(largest_contour)
-            box = cv2.boxPoints(rect)
-            box = np.array(box, dtype=np.float32)
-            
-            # 使用新的排序函数
-            quadrilateral = self.sort_quadrilateral_points(box, debug)
-            
-        else:
-            # 大区域使用多边形逼近
-            epsilon = 0.02 * cv2.arcLength(largest_contour, True)
-            approx = cv2.approxPolyDP(largest_contour, epsilon, True)
-            
-            while len(approx) > 4 and epsilon < 0.1 * cv2.arcLength(largest_contour, True):
-                epsilon *= 1.5
-                approx = cv2.approxPolyDP(largest_contour, epsilon, True)
-            
-            if len(approx) < 4:
-                x, y, w, h = cv2.boundingRect(largest_contour)
-                points = np.array([[x, y], [x+w, y], [x+w, y+h], [x, y+h]], dtype=np.float32)
-            else:
-                points = approx.reshape(-1, 2).astype(np.float32)[:4]
-            
-            # 使用新的排序函数
-            quadrilateral = self.sort_quadrilateral_points(points, debug)
+        # 使用最大面积四边形方法
+        quadrilateral = self.find_max_area_quadrilateral(contour_points)
         
         return quadrilateral
+    
+    def find_max_area_quadrilateral(self, points):
+        """从点集中找到面积最大的四边形"""
+        from itertools import combinations
+        
+        # 如果点太多，先进行降采样
+        if len(points) > 50:
+            # 使用Douglas-Peucker算法简化轮廓
+            epsilon = 0.01 * cv2.arcLength(points.reshape(-1, 1, 2), True)
+            simplified = cv2.approxPolyDP(points.reshape(-1, 1, 2), epsilon, True)
+            points = simplified.reshape(-1, 2)
+        
+        # 如果点数仍然太多，采用均匀采样
+        if len(points) > 30:
+            indices = np.linspace(0, len(points)-1, 30, dtype=int)
+            points = points[indices]
+        
+        # 如果点数少于4个，使用边界矩形
+        if len(points) < 4:
+            x_coords = points[:, 0]
+            y_coords = points[:, 1]
+            min_x, max_x = np.min(x_coords), np.max(x_coords)
+            min_y, max_y = np.min(y_coords), np.max(y_coords)
+            
+            quadrilateral = np.array([
+                [min_x, min_y],  # 左上
+                [max_x, min_y],  # 右上  
+                [max_x, max_y],  # 右下
+                [min_x, max_y]   # 左下
+            ], dtype=np.float32)
+            
+            return quadrilateral
+        
+        max_area = 0
+        best_quad = None
+        
+        # 枚举所有可能的四点组合
+        for quad_indices in combinations(range(len(points)), 4):
+            quad_points = points[list(quad_indices)]
+            
+            # 计算四边形面积
+            area = self.calculate_quadrilateral_area(quad_points)
+            
+            if area > max_area:
+                max_area = area
+                best_quad = quad_points
+        
+        if best_quad is None:
+            best_quad = points[:4]
+        
+        # 使用智能排序函数
+        quadrilateral = self.sort_quadrilateral_points(best_quad)
+        
+        return quadrilateral
+    
+    def calculate_quadrilateral_area(self, points):
+        """计算四边形面积，使用鞋带公式"""
+        if len(points) != 4:
+            return 0
+        
+        # 鞋带公式计算多边形面积
+        # Area = 0.5 * |Σ(x_i * y_{i+1} - x_{i+1} * y_i)|
+        x = points[:, 0]
+        y = points[:, 1]
+        
+        # 闭合多边形：最后一个点连接到第一个点
+        area = 0.5 * abs(sum(x[i] * y[(i + 1) % 4] - x[(i + 1) % 4] * y[i] for i in range(4)))
+        
+        return area
 
     def rotate_image(self, image, angle):
         """旋转图像"""
@@ -380,14 +370,10 @@ class ImageInserter:
         
         return edge_feather_mask
 
-    def perspective_transform_no_black_border(self, target_image, quadrilateral, output_shape, debug=False):
+    def perspective_transform_no_black_border(self, target_image, quadrilateral, output_shape):
         """透视变换 - 避免黑边"""
         height, width = target_image.shape[:2]
         output_height, output_width = output_shape[:2]
-        
-        if debug:
-            print(f"[DEBUG] 目标图像尺寸: {width}x{height}")
-            print(f"[DEBUG] 输出图像尺寸: {output_width}x{output_height}")
         
         # 目标图像的四个角点（标准顺序：左上、右上、右下、左下）
         src_points = np.array([
@@ -402,14 +388,7 @@ class ImageInserter:
         quadrilateral_clipped[:, 0] = np.clip(quadrilateral_clipped[:, 0], 0, output_width - 1)
         quadrilateral_clipped[:, 1] = np.clip(quadrilateral_clipped[:, 1], 0, output_height - 1)
         
-        if debug:
-            print(f"[DEBUG] 源图像四角点: {src_points}")
-            print(f"[DEBUG] 目标四边形顶点: {quadrilateral_clipped}")
-        
         perspective_matrix = cv2.getPerspectiveTransform(src_points, quadrilateral_clipped)
-        
-        if debug:
-            print(f"[DEBUG] 透视变换矩阵:\n{perspective_matrix}")
         
         # 透视变换 - 使用BORDER_TRANSPARENT避免黑边
         warped = cv2.warpPerspective(
@@ -420,72 +399,39 @@ class ImageInserter:
             borderMode=cv2.BORDER_TRANSPARENT
         )
         
-        if debug:
-            print(f"[DEBUG] 变换后图像值范围: {warped.min()} - {warped.max()}")
-            print(f"[DEBUG] 变换后非零像素数: {np.count_nonzero(warped)}")
-            
-            # 检查四边形区域
-            quad_mask = self.create_quadrilateral_mask(output_shape, quadrilateral_clipped)
-            quad_region_pixels = np.sum(warped[quad_mask > 0])
-            print(f"[DEBUG] 四边形区域像素总和: {quad_region_pixels}")
-            
-            if warped.max() == 0:
-                print("[DEBUG] ⚠️ 警告：透视变换后图像全为黑色！")
-            elif quad_region_pixels == 0:
-                print("[DEBUG] ⚠️ 警告：四边形区域内没有内容！")
-            else:
-                print("[DEBUG] ✅ 透视变换成功，四边形区域有内容")
-        
         return warped
 
     def execute(self, background_image, background_mask, target_image, 
                 rotation_angle, feather_inner_expand, feather_outer_expand, 
-                mask_expand, enhance_small_mask, debug_mode):
+                mask_expand):
         try:
-            print(f"[DEBUG] 开始执行图片插入器，调试模式: {debug_mode}")
-            
             # 转换输入格式
             bg_cv2 = self.tensor_to_cv2(background_image)
             mask_cv2 = self.mask_to_cv2(background_mask)
             target_cv2 = self.tensor_to_cv2(target_image)
             
-            if debug_mode:
-                print(f"[DEBUG] 背景图尺寸: {bg_cv2.shape}")
-                print(f"[DEBUG] Mask尺寸: {mask_cv2.shape}")
-                print(f"[DEBUG] 目标图尺寸: {target_cv2.shape}")
-                print(f"[DEBUG] 目标图值范围: {target_cv2.min()} - {target_cv2.max()}")
-            
             # 确保背景图和mask尺寸一致
             bg_height, bg_width = bg_cv2.shape[:2]
             if mask_cv2.shape != (bg_height, bg_width):
-                if debug_mode:
-                    print(f"[DEBUG] 调整mask尺寸从 {mask_cv2.shape} 到 ({bg_height}, {bg_width})")
                 mask_cv2 = cv2.resize(mask_cv2, (bg_width, bg_height), interpolation=cv2.INTER_NEAREST)
             
-            # 增强小蒙版
-            if enhance_small_mask or mask_expand != 0:
-                mask_cv2 = self.enhance_small_mask(mask_cv2, mask_expand, debug_mode)
+            # 应用蒙版扩展（如果需要）
+            if mask_expand != 0:
+                mask_cv2 = self.enhance_small_mask(mask_cv2, mask_expand)
             
-            # 1. 从mask中提取四边形（修复顶点排序）
-            quadrilateral = self.find_quadrilateral_from_mask(mask_cv2, debug_mode)
+            # 1. 从mask中提取四边形
+            quadrilateral = self.find_quadrilateral_from_mask(mask_cv2)
             
             # 2. 旋转目标图像
             if rotation_angle != 0:
-                if debug_mode:
-                    print(f"[DEBUG] 旋转目标图像 {rotation_angle} 度")
                 target_cv2 = self.rotate_image(target_cv2, rotation_angle)
-                if debug_mode:
-                    print(f"[DEBUG] 旋转后目标图尺寸: {target_cv2.shape}")
             
-            # 3. 透视变换（避免黑边）
+            # 3. 透视变换
             warped_target = self.perspective_transform_no_black_border(
-                target_cv2, quadrilateral, bg_cv2.shape, debug_mode
+                target_cv2, quadrilateral, bg_cv2.shape
             )
             
-            # 4. 基于四边形创建羽化蒙版
-            if debug_mode:
-                print("[DEBUG] 基于检测到的四边形创建羽化蒙版（而非原始mask）")
-            
+            # 4. 创建羽化蒙版
             # 用于图像融合的完整羽化蒙版
             feather_mask_for_blending = self.create_feather_mask(
                 bg_cv2.shape, quadrilateral, feather_inner_expand, feather_outer_expand
@@ -495,14 +441,6 @@ class ImageInserter:
             edge_feather_mask = self.create_edge_feather_mask(
                 bg_cv2.shape, quadrilateral, feather_inner_expand, feather_outer_expand
             )
-            
-            if debug_mode:
-                print(f"[DEBUG] 融合羽化蒙版值范围: {feather_mask_for_blending.min()} - {feather_mask_for_blending.max()}")
-                print(f"[DEBUG] 边缘羽化蒙版值范围: {edge_feather_mask.min()} - {edge_feather_mask.max()}")
-                blend_area = np.sum(feather_mask_for_blending > 0)
-                edge_area = np.sum(edge_feather_mask > 0)
-                print(f"[DEBUG] 融合区域像素数: {blend_area}")
-                print(f"[DEBUG] 边缘羽化区域像素数: {edge_area}")
             
             # 5. 图像融合
             if len(bg_cv2.shape) == 3:
@@ -516,27 +454,15 @@ class ImageInserter:
             elif len(bg_cv2.shape) == 2 and len(warped_target.shape) == 3:
                 warped_target = cv2.cvtColor(warped_target, cv2.COLOR_BGR2GRAY)
             
-            if debug_mode:
-                print(f"[DEBUG] 融合前 - 背景图值范围: {bg_cv2.min()} - {bg_cv2.max()}")
-                print(f"[DEBUG] 融合前 - 变换图值范围: {warped_target.min()} - {warped_target.max()}")
-                print(f"[DEBUG] 融合前 - 羽化蒙版值范围: {feather_mask_3d.min()} - {feather_mask_3d.max()}")
-            
             # 执行融合
             composited = (bg_cv2.astype(np.float32) * (1 - feather_mask_3d) + 
                          warped_target.astype(np.float32) * feather_mask_3d)
             composited = np.clip(composited, 0, 255).astype(np.uint8)
             
-            if debug_mode:
-                print(f"[DEBUG] 融合后图像值范围: {composited.min()} - {composited.max()}")
-                print("[DEBUG] 图像融合完成")
-            
             # 6. 转换回tensor格式
             composited_tensor = self.cv2_to_tensor(composited)
             # 输出边缘羽化轮廓蒙版（只包含边缘，中心为空）
             edge_feather_mask_tensor = torch.from_numpy(edge_feather_mask).unsqueeze(0)
-            
-            if debug_mode:
-                print("[DEBUG] 图片插入器执行成功")
             
             return (composited_tensor, edge_feather_mask_tensor)
             
