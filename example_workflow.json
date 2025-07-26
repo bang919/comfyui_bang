@@ -62,9 +62,9 @@
       "enhance_small_mask": true,
       "debug_mode": true
     },
-    "class_type": "PerspectiveRegionInsertOptimized",
+    "class_type": "PerspectiveRegionInsertFix",
     "_meta": {
-      "title": "小区域优化透视插入"
+      "title": "透视区域插入（问题修复版）"
     }
   },
   "6": {
