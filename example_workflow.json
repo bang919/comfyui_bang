@@ -56,8 +56,8 @@
         0
       ],
       "rotation_angle": 0.0,
-      "feather_inner_expand": 0.0,
-      "feather_outer_expand": 2.0,
+      "feather_inner_expand": 2.0,
+      "feather_outer_expand": 8.0,
       "mask_expand": 1.0,
       "enhance_small_mask": true,
       "debug_mode": true
@@ -65,19 +65,6 @@
     "class_type": "ImageInserter",
     "_meta": {
       "title": "图片插入器"
-    }
-  },
-  "6": {
-    "inputs": {
-      "filename_prefix": "billboard_result",
-      "images": [
-        "5",
-        0
-      ]
-    },
-    "class_type": "SaveImage",
-    "_meta": {
-      "title": "保存广告牌合成结果"
     }
   },
   "7": {
@@ -90,19 +77,6 @@
     "class_type": "MaskToImage",
     "_meta": {
       "title": "查看边缘羽化轮廓"
-    }
-  },
-  "8": {
-    "inputs": {
-      "filename_prefix": "edge_feather_mask",
-      "images": [
-        "7",
-        0
-      ]
-    },
-    "class_type": "SaveImage",
-    "_meta": {
-      "title": "保存边缘羽化轮廓"
     }
   },
   "9": {
