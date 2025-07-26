@@ -4,14 +4,14 @@ import torch
 from PIL import Image
 
 
-class PerspectiveRegionInsertFix:
+class ImageInserter:
     """
-    透视图插入节点（修复版） - 修复黑色输出问题
+    图片插入器 - 将目标图片通过透视变换插入到背景图中
     
     功能:
-    - 修复透视变换后图像为黑色的问题
-    - 优化小区域蒙版的处理
-    - 增强调试信息
+    - 修复四边形顶点排序问题
+    - 解决黑边问题
+    - 优化小区域蒙版处理
     """
     
     def __init__(self):
@@ -125,8 +125,75 @@ class PerspectiveRegionInsertFix:
         
         return mask
 
+    def sort_quadrilateral_points(self, points, debug=False):
+        """正确排序四边形顶点：左上、右上、右下、左下"""
+        if debug:
+            print(f"[DEBUG] 原始顶点: {points}")
+        
+        # 计算质心
+        center = np.mean(points, axis=0)
+        
+        # 根据相对位置分类点
+        top_points = []
+        bottom_points = []
+        
+        for point in points:
+            if point[1] < center[1]:  # y坐标小于质心的是上方点
+                top_points.append(point)
+            else:  # y坐标大于等于质心的是下方点
+                bottom_points.append(point)
+        
+        # 确保我们有正确数量的点
+        if len(top_points) < 2:
+            # 如果上方点少于2个，按y坐标排序，取最小的2个作为上方点
+            sorted_by_y = points[np.argsort(points[:, 1])]
+            top_points = sorted_by_y[:2]
+            bottom_points = sorted_by_y[2:]
+        elif len(bottom_points) < 2:
+            # 如果下方点少于2个，按y坐标排序，取最大的2个作为下方点
+            sorted_by_y = points[np.argsort(points[:, 1])]
+            top_points = sorted_by_y[:2]
+            bottom_points = sorted_by_y[2:]
+        
+        # 转换为numpy数组
+        top_points = np.array(top_points)
+        bottom_points = np.array(bottom_points)
+        
+        # 在上方点中，按x坐标排序：左上、右上
+        top_sorted = top_points[np.argsort(top_points[:, 0])]
+        top_left = top_sorted[0]    # 左上
+        top_right = top_sorted[-1]  # 右上
+        
+        # 在下方点中，按x坐标排序：左下、右下
+        bottom_sorted = bottom_points[np.argsort(bottom_points[:, 0])]
+        bottom_left = bottom_sorted[0]   # 左下
+        bottom_right = bottom_sorted[-1] # 右下
+        
+        # 按标准顺序排列：左上、右上、右下、左下
+        quadrilateral = np.array([
+            top_left,     # 左上 [0]
+            top_right,    # 右上 [1]
+            bottom_right, # 右下 [2]
+            bottom_left   # 左下 [3]
+        ], dtype=np.float32)
+        
+        if debug:
+            print(f"[DEBUG] 排序后顶点:")
+            print(f"[DEBUG]   左上: {quadrilateral[0]}")
+            print(f"[DEBUG]   右上: {quadrilateral[1]}")
+            print(f"[DEBUG]   右下: {quadrilateral[2]}")
+            print(f"[DEBUG]   左下: {quadrilateral[3]}")
+            
+            # 计算宽高
+            width = np.linalg.norm(quadrilateral[1] - quadrilateral[0])
+            height = np.linalg.norm(quadrilateral[3] - quadrilateral[0])
+            aspect_ratio = width / height if height > 0 else 0
+            print(f"[DEBUG] 四边形宽高比: {aspect_ratio:.2f}")
+        
+        return quadrilateral
+
     def find_quadrilateral_from_mask(self, mask, debug=False):
-        """从mask中提取四边形区域，优化小区域处理"""
+        """从mask中提取四边形区域，修复顶点排序"""
         if debug:
             print(f"[DEBUG] Mask shape: {mask.shape}, dtype: {mask.dtype}")
             print(f"[DEBUG] Mask value range: {mask.min()} - {mask.max()}")
@@ -148,42 +215,20 @@ class PerspectiveRegionInsertFix:
         if debug:
             print(f"[DEBUG] 最大轮廓面积: {contour_area}")
         
-        # 对于小区域，使用更精确的边界矩形
+        # 对于小区域，使用旋转矩形获得更准确的四边形
         if contour_area < 5000:
             if debug:
-                print("[DEBUG] 检测到小蒙版区域，使用优化处理")
+                print("[DEBUG] 检测到小蒙版区域，使用旋转矩形优化处理")
             
             rect = cv2.minAreaRect(largest_contour)
             box = cv2.boxPoints(rect)
             box = np.array(box, dtype=np.float32)
             
-            center = np.mean(box, axis=0)
-            angles = np.arctan2(box[:, 1] - center[1], box[:, 0] - center[0])
-            sorted_indices = np.argsort(angles)
+            # 使用新的排序函数
+            quadrilateral = self.sort_quadrilateral_points(box, debug)
             
-            sorted_points = box[sorted_indices]
-            
-            top_indices = np.where(sorted_points[:, 1] < center[1])[0]
-            bottom_indices = np.where(sorted_points[:, 1] >= center[1])[0]
-            
-            if len(top_indices) >= 2 and len(bottom_indices) >= 2:
-                top_points = sorted_points[top_indices]
-                bottom_points = sorted_points[bottom_indices]
-                
-                top_points = top_points[np.argsort(top_points[:, 0])]
-                bottom_points = bottom_points[np.argsort(bottom_points[:, 0])]
-                
-                quadrilateral = np.array([
-                    top_points[0],      # 左上
-                    top_points[-1],     # 右上  
-                    bottom_points[-1],  # 右下
-                    bottom_points[0]    # 左下
-                ], dtype=np.float32)
-            else:
-                quadrilateral = sorted_points[:4]
-                
         else:
-            # 大区域使用原有的多边形逼近方法
+            # 大区域使用多边形逼近
             epsilon = 0.02 * cv2.arcLength(largest_contour, True)
             approx = cv2.approxPolyDP(largest_contour, epsilon, True)
             
@@ -193,39 +238,12 @@ class PerspectiveRegionInsertFix:
             
             if len(approx) < 4:
                 x, y, w, h = cv2.boundingRect(largest_contour)
-                approx = np.array([[x, y], [x+w, y], [x+w, y+h], [x, y+h]], dtype=np.float32)
+                points = np.array([[x, y], [x+w, y], [x+w, y+h], [x, y+h]], dtype=np.float32)
             else:
-                approx = approx.reshape(-1, 2).astype(np.float32)
-                approx = approx[:4]
+                points = approx.reshape(-1, 2).astype(np.float32)[:4]
             
-            center = np.mean(approx, axis=0)
-            angles = np.arctan2(approx[:, 1] - center[1], approx[:, 0] - center[0])
-            sorted_indices = np.argsort(angles)
-            
-            sorted_points = approx[sorted_indices]
-            
-            top_points = sorted_points[sorted_points[:, 1] < center[1]]
-            bottom_points = sorted_points[sorted_points[:, 1] >= center[1]]
-            
-            if len(top_points) >= 2 and len(bottom_points) >= 2:
-                top_points = top_points[np.argsort(top_points[:, 0])]
-                bottom_points = bottom_points[np.argsort(bottom_points[:, 0])]
-                
-                quadrilateral = np.array([
-                    top_points[0],      # 左上
-                    top_points[-1],     # 右上
-                    bottom_points[-1],  # 右下
-                    bottom_points[0]    # 左下
-                ], dtype=np.float32)
-            else:
-                quadrilateral = sorted_points[:4]
-        
-        if debug:
-            print(f"[DEBUG] 四边形顶点: {quadrilateral}")
-            width = np.linalg.norm(quadrilateral[1] - quadrilateral[0])
-            height = np.linalg.norm(quadrilateral[3] - quadrilateral[0])
-            aspect_ratio = width / height if height > 0 else 0
-            print(f"[DEBUG] 四边形宽高比: {aspect_ratio:.2f}")
+            # 使用新的排序函数
+            quadrilateral = self.sort_quadrilateral_points(points, debug)
         
         return quadrilateral
 
@@ -286,8 +304,8 @@ class PerspectiveRegionInsertFix:
         
         return feather_mask
 
-    def perspective_transform_fixed(self, target_image, quadrilateral, output_shape, debug=False):
-        """修复版透视变换 - 直接变换到目标尺寸"""
+    def perspective_transform_no_black_border(self, target_image, quadrilateral, output_shape, debug=False):
+        """透视变换 - 避免黑边"""
         height, width = target_image.shape[:2]
         output_height, output_width = output_shape[:2]
         
@@ -295,11 +313,12 @@ class PerspectiveRegionInsertFix:
             print(f"[DEBUG] 目标图像尺寸: {width}x{height}")
             print(f"[DEBUG] 输出图像尺寸: {output_width}x{output_height}")
         
+        # 目标图像的四个角点（标准顺序：左上、右上、右下、左下）
         src_points = np.array([
-            [0, 0],
-            [width - 1, 0],
-            [width - 1, height - 1],
-            [0, height - 1]
+            [0, 0],                    # 左上
+            [width - 1, 0],            # 右上
+            [width - 1, height - 1],   # 右下
+            [0, height - 1]            # 左下
         ], dtype=np.float32)
         
         # 确保四边形顶点在输出图像范围内
@@ -308,30 +327,29 @@ class PerspectiveRegionInsertFix:
         quadrilateral_clipped[:, 1] = np.clip(quadrilateral_clipped[:, 1], 0, output_height - 1)
         
         if debug:
-            print(f"[DEBUG] 原始四边形顶点: {quadrilateral}")
-            print(f"[DEBUG] 裁剪后四边形顶点: {quadrilateral_clipped}")
+            print(f"[DEBUG] 源图像四角点: {src_points}")
+            print(f"[DEBUG] 目标四边形顶点: {quadrilateral_clipped}")
         
         perspective_matrix = cv2.getPerspectiveTransform(src_points, quadrilateral_clipped)
         
         if debug:
             print(f"[DEBUG] 透视变换矩阵:\n{perspective_matrix}")
         
-        # 直接变换到输出尺寸
+        # 透视变换 - 使用BORDER_TRANSPARENT避免黑边
         warped = cv2.warpPerspective(
             target_image, 
             perspective_matrix, 
             (output_width, output_height),
             flags=cv2.INTER_CUBIC,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(0, 0, 0)
+            borderMode=cv2.BORDER_TRANSPARENT
         )
         
         if debug:
             print(f"[DEBUG] 变换后图像值范围: {warped.min()} - {warped.max()}")
             print(f"[DEBUG] 变换后非零像素数: {np.count_nonzero(warped)}")
             
-            # 检查四边形区域是否有内容
-            quad_mask = self.create_quadrilateral_mask((output_height, output_width), quadrilateral_clipped)
+            # 检查四边形区域
+            quad_mask = self.create_quadrilateral_mask(output_shape, quadrilateral_clipped)
             quad_region_pixels = np.sum(warped[quad_mask > 0])
             print(f"[DEBUG] 四边形区域像素总和: {quad_region_pixels}")
             
@@ -339,6 +357,8 @@ class PerspectiveRegionInsertFix:
                 print("[DEBUG] ⚠️ 警告：透视变换后图像全为黑色！")
             elif quad_region_pixels == 0:
                 print("[DEBUG] ⚠️ 警告：四边形区域内没有内容！")
+            else:
+                print("[DEBUG] ✅ 透视变换成功，四边形区域有内容")
         
         return warped
 
@@ -346,7 +366,7 @@ class PerspectiveRegionInsertFix:
                 rotation_angle, feather_inner_expand, feather_outer_expand, 
                 mask_expand, enhance_small_mask, debug_mode):
         try:
-            print(f"[DEBUG] 开始执行修复版透视插入节点，调试模式: {debug_mode}")
+            print(f"[DEBUG] 开始执行图片插入器，调试模式: {debug_mode}")
             
             # 转换输入格式
             bg_cv2 = self.tensor_to_cv2(background_image)
@@ -370,7 +390,7 @@ class PerspectiveRegionInsertFix:
             if enhance_small_mask or mask_expand != 0:
                 mask_cv2 = self.enhance_small_mask(mask_cv2, mask_expand, debug_mode)
             
-            # 1. 从mask中提取四边形
+            # 1. 从mask中提取四边形（修复顶点排序）
             quadrilateral = self.find_quadrilateral_from_mask(mask_cv2, debug_mode)
             
             # 2. 旋转目标图像
@@ -381,8 +401,8 @@ class PerspectiveRegionInsertFix:
                 if debug_mode:
                     print(f"[DEBUG] 旋转后目标图尺寸: {target_cv2.shape}")
             
-            # 3. 修复版透视变换 - 直接变换到背景图尺寸
-            warped_target = self.perspective_transform_fixed(
+            # 3. 透视变换（避免黑边）
+            warped_target = self.perspective_transform_no_black_border(
                 target_cv2, quadrilateral, bg_cv2.shape, debug_mode
             )
             
@@ -430,12 +450,12 @@ class PerspectiveRegionInsertFix:
             feather_mask_tensor = torch.from_numpy(feather_mask).unsqueeze(0)
             
             if debug_mode:
-                print("[DEBUG] 修复版透视插入节点执行成功")
+                print("[DEBUG] 图片插入器执行成功")
             
             return (composited_tensor, feather_mask_tensor)
             
         except Exception as e:
-            print(f"❌ 修复版透视插入节点执行错误: {str(e)}")
+            print(f"❌ 图片插入器执行错误: {str(e)}")
             import traceback
             print(f"❌ 详细错误信息:\n{traceback.format_exc()}")
             fallback_mask = torch.zeros((1, background_image.shape[1], background_image.shape[2]))
@@ -444,9 +464,9 @@ class PerspectiveRegionInsertFix:
 
 # 节点映射
 NODE_CLASS_MAPPINGS = {
-    "PerspectiveRegionInsertFix": PerspectiveRegionInsertFix
+    "ImageInserter": ImageInserter
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "PerspectiveRegionInsertFix": "透视区域插入（问题修复版） (Perspective Region Insert Fix)"
+    "ImageInserter": "图片插入器"
 } 

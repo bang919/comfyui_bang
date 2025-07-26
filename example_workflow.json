@@ -62,9 +62,9 @@
       "enhance_small_mask": true,
       "debug_mode": true
     },
-    "class_type": "PerspectiveRegionInsertFix",
+    "class_type": "ImageInserter",
     "_meta": {
-      "title": "透视区域插入（问题修复版）"
+      "title": "图片插入器"
     }
   },
   "6": {
